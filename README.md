@@ -32,8 +32,6 @@ This Chrome extension automates the login process for your college Wi-Fi network
    - Type `chrome://extensions/` in the address bar and press Enter
    - Or click the three dots menu (top right) > More tools > Extensions
 
-   ![Chrome Extensions](assets/chrome-extensions.png)
-
 4. **Enable Developer Mode**
    - Look for the "Developer mode" toggle in the top-right corner
    - Click the toggle to turn it ON (it should turn blue)
