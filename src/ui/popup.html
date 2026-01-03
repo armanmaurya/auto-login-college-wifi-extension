@@ -41,14 +41,55 @@
       border-radius: 4px;
       cursor: pointer;
       font-size: 14px;
+      margin-bottom: 8px;
     }
     button:hover {
       background: #45a049;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    #connectBtn {
+      background: #2196F3;
+    }
+    #connectBtn:hover:not(:disabled) {
+      background: #1976D2;
+    }
+    #connectBtn.connecting {
+      background: #FF9800;
+    }
+    #connectBtn.success {
+      background: #4CAF50;
+    }
+    #connectBtn.error {
+      background: #f44336;
     }
     #status { 
       text-align: center; 
       margin-top: 10px;
       font-size: 12px;
+    }
+    .connection-status {
+      background: white;
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 4px;
+      font-size: 13px;
+      text-align: center;
+      border-left: 4px solid #ccc;
+    }
+    .connection-status.connected {
+      border-left-color: #4CAF50;
+      color: #2e7d32;
+    }
+    .connection-status.disconnected {
+      border-left-color: #f44336;
+      color: #c62828;
+    }
+    .connection-status.connecting {
+      border-left-color: #FF9800;
+      color: #e65100;
     }
     .feature {
       background: white;
@@ -62,6 +103,13 @@
 </head>
 <body>
   <h3>Wi-Fi AutoLogin</h3>
+  
+  <div class="connection-status" id="connectionStatus">
+    <span id="statusText">Checking status...</span>
+  </div>
+  
+  <button id="connectBtn">Connect Now</button>
+  
   <input type="text" id="username" placeholder="Username" />
   <input type="password" id="password" placeholder="Password" />
   <label>
@@ -73,10 +121,11 @@
   
   <div class="feature">
     <strong>Features:</strong><br>
-    1. Auto-fills login credentials<br>
-    2. Auto-submits login form<br>
-    3. Redirects to original website<br>
-    4. Auto-closes login tabs
+    1. Manual instant connect button<br>
+    2. Auto-detect WiFi sign-out<br>
+    3. Background invisible login<br>
+    4. Zero polling, event-driven<br>
+    5. Auto-closes login tabs
   </div>
 
   <script src="popup.js"></script>

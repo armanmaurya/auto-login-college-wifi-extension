@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Auto Wi-Fi Login - Seamless",
-  "version": "2.3.0",
-  "description": "Seamless auto-login for captive portals with instant detection and video position restoration.",
+  "version": "4.0.0",
+  "description": "Zero-polling passive WiFi monitor. Invisible background login, no tabs, pure event-driven detection.",
   "permissions": [
     "storage",
     "activeTab",
-    "tabs"
+    "tabs",
+    "alarms"
   ],
   "host_permissions": [
     "<all_urls>"

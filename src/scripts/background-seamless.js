@@ -1,9 +1,86 @@
 // FIXED Background Service Worker - Proper Tab Management
-console.log('[Background] 🚀 FIXED service worker loaded - proper login tab management');
+console.log('[Background] 🚀 Service worker loaded - login tab management ready');
+
+// --- Badge helpers ---------------------------------------------------------
+function setBadge(status) {
+  try {
+    /**
+     * Global badge (not per-tab) to indicate overall state.
+     * Text limited to 4 chars; choose short codes.
+     */
+    let text = '';
+    let color = '#4CAF50'; // green default
+    switch (status) {
+      case 'connected':
+        text = 'ON';
+        color = '#2e7d32'; // green dark
+        break;
+      case 'disconnected':
+        text = 'OFF';
+        color = '#d32f2f'; // red
+        break;
+      case 'logging-in':
+      case 'login-requested':
+        text = 'LOG';
+        color = '#f9a825'; // amber
+        break;
+      case 'login-request-failed':
+      case 'error':
+        text = 'ERR';
+        color = '#616161'; // grey
+        break;
+      case 'monitoring':
+      default:
+        text = '';
+        color = '#4CAF50';
+        break;
+    }
+    chrome.action.setBadgeBackgroundColor({ color });
+    chrome.action.setBadgeText({ text });
+  } catch (e) {
+    // Ignore badge errors
+  }
+}
 
 // FIXED: Simplified state management
 let lastLoginAttempt = 0;
 let backgroundLoginTabs = new Map();
+
+// Light keepAlive via alarms to ensure periodic wake-ups (MV3 service worker can go inactive)
+try {
+  chrome.runtime.onInstalled.addListener(() => {
+    console.log('[Background] Extension installed, setting up keepAlive');
+    try { setBadge('monitoring'); } catch {}
+    try { 
+      chrome.alarms.create('keepAlive', { periodInMinutes: 1.0 }); 
+      console.log('[Background] keepAlive alarm created (1 min interval)');
+    } catch (e) {
+      console.error('[Background] Failed to create alarm:', e);
+    }
+  });
+  chrome.runtime.onStartup.addListener(() => {
+    console.log('[Background] Browser startup, setting up keepAlive');
+    try { setBadge('monitoring'); } catch {}
+    try { 
+      chrome.alarms.create('keepAlive', { periodInMinutes: 1.0 }); 
+      console.log('[Background] keepAlive alarm created on startup');
+    } catch (e) {
+      console.error('[Background] Failed to create alarm:', e);
+    }
+  });
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm && alarm.name === 'keepAlive') {
+      console.log('[Background] keepAlive alarm fired - worker is awake');
+      // no-op: the alarm event itself wakes the worker
+    }
+  });
+  
+  // Initialize on script load (for when service worker first starts)
+  chrome.alarms.create('keepAlive', { periodInMinutes: 1.0 });
+  console.log('[Background] Initial keepAlive alarm created');
+} catch (e) {
+  console.error('[Background] keepAlive setup error:', e);
+}
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('[Background] Message received:', request.action, 'from tab:', sender.tab?.id);
@@ -11,6 +88,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // Handle background login requests
   if (request.action === 'backgroundLogin') {
     handleBackgroundLogin(request, sender, sendResponse);
+    return true;
+  }
+
+  // Handle status updates from content scripts
+  if (request.action === 'statusUpdate') {
+    if (request.status) {
+      setBadge(request.status);
+    }
+    sendResponse({ success: true });
     return true;
   }
 
@@ -40,6 +126,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       });
     }
     
+    // Reflect success on badge
+    setBadge('connected');
+
+    // Broadcast success to all extension contexts (including popup if open)
+    chrome.runtime.sendMessage({ action: 'loginSuccess' }).catch(() => {
+      // Ignore errors if no listeners
+    });
+
     sendResponse({ 
       success: true, 
       message: 'Login success acknowledged - tab closed immediately for seamless experience'
@@ -68,15 +162,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 // FIXED: Background login handler with proper tab management
 async function handleBackgroundLogin(request, sender, sendResponse) {
   try {
-    console.log('[Background] 🔄 Handling background login request from:', sender.tab?.url);
+    const isManual = request.manual === true;
+    console.log('[Background] 🔄 Handling', isManual ? 'MANUAL' : 'automatic', 'login request from:', sender.tab?.url || 'popup');
     
     // FIXED: Prevent too frequent login attempts (5 second cooldown - reduced for speed)
+    // Bypass cooldown for manual requests
     const now = Date.now();
-    if (now - lastLoginAttempt < 5000) {
+    if (!isManual && now - lastLoginAttempt < 5000) {
       console.log('[Background] ⏳ Login cooldown active, skipping');
       sendResponse({ 
         success: false, 
-        message: 'Login cooldown active',
+        message: 'Login cooldown active (wait ' + Math.ceil((5000 - (now - lastLoginAttempt)) / 1000) + 's)',
         cooldownRemaining: Math.ceil((5000 - (now - lastLoginAttempt)) / 1000)
       });
       return;
@@ -96,7 +192,8 @@ async function handleBackgroundLogin(request, sender, sendResponse) {
       return;
     }
     
-    console.log('[Background] ⚡ Creating INSTANT background login tab...');
+  console.log('[Background] ⚡ Creating INSTANT background login tab...');
+  setBadge('logging-in');
     
     // ENHANCED: Create a background tab for INSTANT seamless login
     const loginTab = await chrome.tabs.create({
@@ -138,6 +235,7 @@ async function handleBackgroundLogin(request, sender, sendResponse) {
     
   } catch (error) {
     console.error('[Background] Error in background login:', error);
+    setBadge('login-request-failed');
     sendResponse({ 
       success: false, 
       error: error.message,
@@ -175,6 +273,6 @@ setInterval(() => {
 chrome.runtime.onStartup.addListener(() => {
   console.log('[Background] 🚀 Extension startup - background login ready');
   backgroundLoginTabs.clear(); // Clear any stale tab references
+  setBadge('monitoring');
 });
-
-console.log('[Background] ✅ FIXED background service ready - proper tab management enabled');
+console.log('[Background] ✅ Background service ready - proper tab management enabled');

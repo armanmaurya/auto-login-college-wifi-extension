@@ -1,339 +1,156 @@
-// RESTORED WiFi Monitor - Proper WiFi Disconnection Detection + HTTPS Safe
-// Version 2.2.0 - FUNCTIONAL WiFi Detection Restored
-console.log('[WiFi-Monitor] 🚀 FUNCTIONAL monitor v2.2.0 loaded on:', window.location.href);
-
-(function() {
+// WiFi Monitor - Zero polling, 100% passive event-driven detection
+// Version 4.0.0 (no scheduled checks, no tabs, pure invisible monitoring)
+(function () {
   'use strict';
-  
-  // Don't run on captive portal pages or extension pages
-  if (window.location.hostname.includes('192.168.1.254') ||
-      window.location.hostname.includes('chrome-extension') ||
-      window.location.protocol.includes('chrome')) {
-    console.log('[WiFi-Monitor] Skipping monitoring on:', window.location.hostname);
+
+  // Skip captive portal and extension pages
+  const host = location.hostname || '';
+  const proto = location.protocol || '';
+  if (host.includes('192.168.1.254') || host.startsWith('chrome-extension') || proto.startsWith('chrome')) {
     return;
   }
 
-  console.log('[WiFi-Monitor] 🎯 Starting FUNCTIONAL WiFi monitoring for:', window.location.hostname);
+  // Optional lightweight debug: enable with localStorage.setItem('wifiMonitorDebug','1')
+  const debug = localStorage.getItem('wifiMonitorDebug') === '1';
+  const log = (...a) => { if (debug) console.log('[WiFi-Monitor]', ...a); };
 
-  // RESTORED: Proper state management
-  let lastConnectivityCheck = 0;
-  let connectivityFailures = 0;
+  // Minimal status object for test page compatibility
+  window.wifiMonitor = { isActive: true, status: 'starting', failures: 0, lastCheck: null };
+
+  // One-shot runtime recovery: if extension was reloaded, old content scripts lose runtime
+  const RELOAD_KEY = '__wifiExtReloadOnce';
+  function ensureRuntimeOrRecover() {
+    if (chrome && chrome.runtime && chrome.runtime.id) return true;
+    // Avoid loops: reload this page only once per tab/session
+    if (!sessionStorage.getItem(RELOAD_KEY)) {
+      sessionStorage.setItem(RELOAD_KEY, String(Date.now()));
+      updateStatus('extension-invalidated');
+      // Small jitter to prevent synchronized reloads across many tabs
+      setTimeout(() => { try { location.reload(); } catch (_) {} }, 400 + Math.random() * 400);
+    } else {
+      updateStatus('extension-invalidated');
+    }
+    return false;
+  }
+
+  // Debounced status update to background for badge
+  let statusTimer;
+  function updateStatus(status) {
+    window.wifiMonitor.status = status;
+    if (!chrome?.runtime?.id) return; // avoid invalid context spam
+    clearTimeout(statusTimer);
+    statusTimer = setTimeout(() => {
+      try { chrome.runtime.sendMessage({ action: 'statusUpdate', status }); } catch (_) {}
+    }, 100);
+  }
+
+  // State (100% passive - no polling intervals)
+  let lastResultOk = true;
+  let failureStreak = 0;
   let loginInProgress = false;
-  let monitoringStarted = false;
-  
-  // INSTANT: Ultra-fast WiFi disconnection detection
-  async function testConnectivity() {
-    const now = Date.now();
-    
-    // INSTANT: Reduced cooldown to 1 second for faster detection
-    if (now - lastConnectivityCheck < 1000) {
-      console.log('[WiFi-Monitor] ⏳ Connectivity check cooldown active');
-      return true; // Assume connected during cooldown
-    }
-    
-    lastConnectivityCheck = now;
-    
-    try {
-      console.log('[WiFi-Monitor] ⚡ INSTANT connectivity test...');
-      
-      const isHttps = window.location.protocol === 'https:';
-      
-      if (isHttps) {
-        // For HTTPS sites: Use fastest possible endpoints with aggressive timeout
-        console.log('[WiFi-Monitor] HTTPS site - INSTANT endpoint testing');
-        
-        const testUrls = [
-          'https://www.google.com/generate_204',
-          'https://cloudflare.com/cdn-cgi/trace'
-        ];
-        
-        // Test endpoints in parallel for maximum speed
-        const testPromises = testUrls.map(url => {
-          const controller = new AbortController();
-          setTimeout(() => controller.abort(), 1500); // Reduced from 4000ms to 1500ms
-          
-          return fetch(url, {
-            method: 'HEAD',
-            mode: 'no-cors',
-            cache: 'no-cache',
-            signal: controller.signal
-          }).then(() => {
-            console.log('[WiFi-Monitor] ⚡ INSTANT HTTPS connectivity confirmed:', url);
-            return true;
-          }).catch(error => {
-            console.log('[WiFi-Monitor] ⚠️ HTTPS endpoint failed fast:', url, error.name);
-            return false;
-          });
-        });
-        
-        // Wait for first successful response (race condition)
-        const results = await Promise.allSettled(testPromises);
-        const hasConnection = results.some(result => result.status === 'fulfilled' && result.value === true);
-        
-        if (hasConnection) {
-          connectivityFailures = 0;
-          return true;
-        }
-        
-        // All HTTPS endpoints failed - WiFi likely signed out
-        console.log('[WiFi-Monitor] 🚨 INSTANT: All HTTPS endpoints failed - WiFi disconnected!');
-        connectivityFailures++;
-        return false;
-        
-      } else {
-        // For HTTP sites: Use fastest connectivity check endpoints
-        console.log('[WiFi-Monitor] HTTP site - INSTANT connectivity testing');
-        
-        const testUrls = [
-          'http://connectivitycheck.gstatic.com/generate_204',
-          'http://www.msftconnecttest.com/connecttest.txt'
-        ];
-        
-        // Test in parallel for maximum speed
-        const testPromises = testUrls.map(url => {
-          const controller = new AbortController();
-          setTimeout(() => controller.abort(), 1500); // Reduced timeout
-          
-          return fetch(url, {
-            method: 'HEAD',
-            mode: 'no-cors',
-            cache: 'no-cache',
-            signal: controller.signal
-          }).then(() => {
-            console.log('[WiFi-Monitor] ⚡ INSTANT HTTP connectivity confirmed:', url);
-            return true;
-          }).catch(error => {
-            console.log('[WiFi-Monitor] ⚠️ HTTP endpoint failed fast:', url, error.name);
-            return false;
-          });
-        });
-        
-        const results = await Promise.allSettled(testPromises);
-        const hasConnection = results.some(result => result.status === 'fulfilled' && result.value === true);
-        
-        if (hasConnection) {
-          connectivityFailures = 0;
-          return true;
-        }
-        
-        // All HTTP endpoints failed - likely captive portal
-        console.log('[WiFi-Monitor] 🚨 INSTANT: All HTTP endpoints failed - captive portal detected!');
-        connectivityFailures++;
-        return false;
-      }
-      
-    } catch (error) {
-      console.error('[WiFi-Monitor] INSTANT connectivity test error:', error);
-      connectivityFailures++;
-      return false;
-    }
-  }
+  let lastLoginAttemptTs = 0;
+  const MIN_LOGIN_INTERVAL = 10000; // Don't retry login faster than 10s
 
-  // INSTANT: Attempt login when connectivity fails
-  async function attemptLogin() {
-    if (loginInProgress) {
-      console.log('[WiFi-Monitor] ⏳ Login already in progress, skipping');
-      return;
-    }
-    
-    console.log('[WiFi-Monitor] ⚡ INSTANT WIFI SIGN-OUT DETECTED! Starting FAST login...');
-    loginInProgress = true;
-    
-    try {
-      // INSTANT: Request background login from service worker immediately
-      const response = await chrome.runtime.sendMessage({ 
-        action: 'backgroundLogin',
-        currentUrl: window.location.href,
-        priority: 'instant' // Flag for immediate processing
-      });
-      
-      if (response && response.success) {
-        console.log('[WiFi-Monitor] ⚡ INSTANT background login initiated:', response.method);
-      } else {
-        console.log('[WiFi-Monitor] ⚠️ Background login failed:', response?.message || 'No response');
-      }
-      
-    } catch (error) {
-      console.error('[WiFi-Monitor] Login request failed:', error);
-    } finally {
-      // FASTER: Reset login flag after 10 seconds (reduced from 20)
-      setTimeout(() => {
-        loginInProgress = false;
-        console.log('[WiFi-Monitor] 🔄 Login flag reset - ready for next INSTANT detection');
-      }, 10000);
-    }
-  }
-
-  // RESTORED: Video position management for seamless experience
-  const VideoPositionManager = {
-    save: function() {
+  // Passive fetch monitoring (learns from real user traffic, no active checks)
+  if (!window.__wifiMonitorFetchPatched) {
+    const origFetch = window.fetch;
+    window.fetch = async function (...args) {
       try {
-        const videos = document.querySelectorAll('video');
-        videos.forEach((video, index) => {
-          if (video.currentTime > 0 && video.duration > 0) {
-            const key = `video_position_${window.location.hostname}_${index}`;
-            const data = {
-              currentTime: video.currentTime,
-              duration: video.duration,
-              src: video.src || video.currentSrc,
-              timestamp: Date.now()
-            };
-            localStorage.setItem(key, JSON.stringify(data));
-            console.log('[WiFi-Monitor] 💾 Saved video position for seamless experience:', video.currentTime);
-          }
-        });
-      } catch (error) {
-        console.error('[WiFi-Monitor] Error saving video positions:', error);
-      }
-    },
-    
-    restore: function() {
-      try {
-        setTimeout(() => {
-          const videos = document.querySelectorAll('video');
-          videos.forEach((video, index) => {
-            const key = `video_position_${window.location.hostname}_${index}`;
-            const saved = localStorage.getItem(key);
-            
-            if (saved) {
-              const data = JSON.parse(saved);
-              // Only restore if saved within last 5 minutes
-              if (Date.now() - data.timestamp < 300000) {
-                video.currentTime = data.currentTime;
-                console.log('[WiFi-Monitor] ⏮️ Restored video position for seamless experience:', data.currentTime);
-                localStorage.removeItem(key); // Clean up
-              }
-            }
-          });
-        }, 1000);
-      } catch (error) {
-        console.error('[WiFi-Monitor] Error restoring video positions:', error);
-      }
-    }
-  };
-
-  // RESTORED: Video monitoring for seamless experience
-  function setupVideoMonitoring() {
-    const videos = document.querySelectorAll('video');
-    
-    videos.forEach((video, index) => {
-      if (!video.hasAttribute('data-wifi-monitored')) {
-        video.setAttribute('data-wifi-monitored', 'true');
-        
-        // Save position periodically while playing
-        video.addEventListener('timeupdate', () => {
-          if (video.currentTime > 0) {
-            VideoPositionManager.save();
-          }
-        });
-        
-        // Save position when paused
-        video.addEventListener('pause', () => {
-          VideoPositionManager.save();
-        });
-        
-        console.log('[WiFi-Monitor] 📹 Video monitoring setup for seamless experience on video', index);
-      }
-    });
-  }
-
-  // RESTORED: Aggressive network error monitoring for instant detection
-  function monitorNetworkErrors() {
-    console.log('[WiFi-Monitor] 🕸️ Setting up aggressive network error monitoring');
-    
-    // INSTANT: Monitor fetch failures globally for instant WiFi detection
-    const originalFetch = window.fetch;
-    window.fetch = async function(...args) {
-      try {
-        const response = await originalFetch.apply(this, args);
-        
-        // If we get successful responses, connectivity is working
-        if (response.ok || response.status < 500) {
-          connectivityFailures = Math.max(0, connectivityFailures - 1);
+        const res = await origFetch.apply(this, args);
+        // Success on real traffic = connectivity OK
+        if (res.ok || res.status < 500) {
+          failureStreak = 0;
+          lastResultOk = true;
+          window.wifiMonitor.failures = 0;
+          updateStatus('connected');
         }
-        
-        return response;
-        
-      } catch (error) {
-        // INSTANT: Network error detected - possible WiFi sign-out
-        console.log('[WiFi-Monitor] ⚡ INSTANT network error detected:', error.name);
-        connectivityFailures++;
-        
-        // INSTANT: If just 1 network error, immediately test connectivity
-        if (connectivityFailures >= 1) {
-          console.log('[WiFi-Monitor] ⚠️ Network error - testing connectivity INSTANTLY');
-          const hasInternet = await testConnectivity();
-          if (!hasInternet) {
-            console.log('[WiFi-Monitor] 🚨 CONFIRMED INSTANTLY: WiFi signed out! Starting FAST login...');
-            await attemptLogin();
-          }
+        return res;
+      } catch (err) {
+        // Network failure on real traffic = potential sign-out
+        const isNetworkError = err.name === 'TypeError' || err.message.includes('Failed to fetch');
+        if (isNetworkError) {
+          failureStreak++;
+          lastResultOk = false;
+          window.wifiMonitor.failures = failureStreak;
+          updateStatus('disconnected');
+          // After 2 failures from real traffic, try invisible login
+          if (failureStreak >= 2) attemptLogin();
         }
-        
-        throw error;
+        throw err;
       }
     };
+    window.__wifiMonitorFetchPatched = true;
   }
 
-  // RESTORED: Frequent periodic monitoring for instant WiFi detection
-  function startPeriodicMonitoring() {
-    if (monitoringStarted) {
-      console.log('[WiFi-Monitor] ⚠️ Monitoring already started');
-      return;
-    }
-    
-    monitoringStarted = true;
-    console.log('[WiFi-Monitor] ⏰ Starting aggressive periodic WiFi monitoring');
-    
-    // INSTANT: Check connectivity every 3 seconds for maximum speed
-    setInterval(async () => {
-      if (!loginInProgress) {
-        console.log('[WiFi-Monitor] ⚡ INSTANT periodic WiFi check...');
-        const hasInternet = await testConnectivity();
-        if (!hasInternet) {
-          console.log('[WiFi-Monitor] 🚨 INSTANT periodic check: WiFi SIGNED OUT! Starting FAST login...');
-          await attemptLogin();
-        }
-      }
-    }, 3000); // Reduced from 8000ms to 3000ms for INSTANT detection
-    
-    // Setup video monitoring every 2 seconds for new videos
-    setInterval(() => {
-      setupVideoMonitoring();
-    }, 2000); // Reduced from 3000ms to 2000ms
-  }
+  // No active connectivity tests - rely 100% on passive signals
 
-  // RESTORED: Initialize everything when page loads
-  async function initialize() {
+  // No intervals - pure event-driven
+
+  async function attemptLogin() {
+    // Prevent rapid login attempts
+    const now = Date.now();
+    if (loginInProgress || now - lastLoginAttemptTs < MIN_LOGIN_INTERVAL) return;
+    
+    loginInProgress = true;
+    lastLoginAttemptTs = now;
+    updateStatus('logging-in');
+
     try {
-      console.log('[WiFi-Monitor] 🚀 Initializing FUNCTIONAL WiFi monitoring...');
-      
-      // Wait for page to be ready
-      if (document.readyState === 'loading') {
-        await new Promise(resolve => {
-          document.addEventListener('DOMContentLoaded', resolve, { once: true });
-        });
+      // If extension context is invalid, auto-recover once
+      if (!ensureRuntimeOrRecover()) {
+        setTimeout(() => { loginInProgress = false; }, 5000);
+        return;
       }
+
+      // Single attempt to background worker (it has retry logic)
+      const resp = await chrome.runtime.sendMessage({
+        action: 'backgroundLogin',
+        currentUrl: location.href,
+        trigger: 'passive-detection'
+      });
       
-      // Restore video positions if available
-      VideoPositionManager.restore();
-      
-      // Setup aggressive network error monitoring
-      monitorNetworkErrors();
-      
-      // Setup initial video monitoring
-      setupVideoMonitoring();
-      
-      // Start aggressive periodic monitoring
-      startPeriodicMonitoring();
-      
-      console.log('[WiFi-Monitor] ✅ FUNCTIONAL WiFi monitoring active on', window.location.hostname);
-      
-    } catch (error) {
-      console.error('[WiFi-Monitor] Initialization error:', error);
+      if (resp && resp.success) {
+        log('Login tab opened invisibly');
+        updateStatus('login-requested');
+      } else {
+        log('Login request failed:', resp?.message);
+        updateStatus('login-request-failed');
+      }
+    } catch (err) {
+      log('Login error:', err.message);
+      updateStatus('login-request-failed');
+    } finally {
+      setTimeout(() => { loginInProgress = false; }, 5000);
     }
   }
 
-  // Start monitoring
-  initialize();
+  // Browser network events (instant, zero-cost detection)
+  window.addEventListener('offline', () => {
+    log('Browser offline event');
+    lastResultOk = false;
+    failureStreak = 3; // High confidence from browser
+    updateStatus('disconnected');
+    attemptLogin(); // Immediate invisible login attempt
+  });
+  
+  window.addEventListener('online', () => {
+    log('Browser online event');
+    lastResultOk = true;
+    failureStreak = 0;
+    updateStatus('connected');
+  });
 
+  async function init() {
+    if (document.readyState === 'loading') {
+      await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }));
+    }
+    // Clear one-shot reload sentinel if stale (>60s)
+    const ts = Number(sessionStorage.getItem(RELOAD_KEY) || 0);
+    if (ts && Date.now() - ts > 60000) sessionStorage.removeItem(RELOAD_KEY);
+    
+    updateStatus('monitoring');
+    log('Passive monitoring active - zero polling, event-driven only');
+  }
+
+  init();
 })();

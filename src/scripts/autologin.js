@@ -71,116 +71,84 @@
   if (settings.autoSubmit) {
     console.log('[AutoLogin] ⚡ INSTANT AUTOMATIC SUBMISSION - MAXIMUM SPEED!');
     
-    // INSTANT: Start with button clicking IMMEDIATELY (most reliable)
-    const submitBtn = document.querySelector('#loginbutton') || 
-                     document.querySelector('input[type="submit"]') || 
-                     document.querySelector('button[type="submit"]') ||
-                     document.querySelector('button[onclick*="login"]') ||
-                     document.querySelector('button');
-
-    if (submitBtn) {
-      console.log('[AutoLogin] ⚡ INSTANTLY clicking submit button...');
+    // PRIORITY: Try form submission FIRST (avoids CSP issues with javascript: URLs on buttons)
+    const form = document.querySelector('form');
+    if (form) {
+      console.log('[AutoLogin] ⚡ Form found, using direct submission (CSP-safe)');
       
-      // Click IMMEDIATELY - no delay
+      // Fill form data
+      const formData = new FormData(form);
+      formData.set('username', settings.username);
+      formData.set('password', settings.password);
+      
+      // Capture hidden fields
+      const hiddenInputs = form.querySelectorAll('input[type="hidden"]');
+      hiddenInputs.forEach(input => {
+        if (input.name && input.value) {
+          formData.set(input.name, input.value);
+        }
+      });
+      
+      // INSTANT form submission (CSP-safe, no button clicks needed)
       try {
-        submitBtn.click();
-        console.log('[AutoLogin] ⚡ Submit button clicked INSTANTLY');
+        form.submit();
+        console.log('[AutoLogin] ⚡ Form submitted INSTANTLY via form.submit()');
       } catch (error) {
-        console.log('[AutoLogin] ⚠️ Instant click failed:', error.message);
+        console.log('[AutoLogin] ⚠️ form.submit() failed:', error.message);
       }
       
-      // Backup clicks with minimal delays for maximum speed
+      // Backup: trigger submit event (some portals listen for this)
       setTimeout(() => {
         try {
-          submitBtn.click();
-          console.log('[AutoLogin] ⚡ Speed backup click #1 executed');
+          const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
+          form.dispatchEvent(submitEvent);
+          console.log('[AutoLogin] ⚡ Submit event dispatched');
         } catch (error) {
-          console.log('[AutoLogin] ⚠️ Speed backup click #1 failed:', error.message);
+          console.log('[AutoLogin] ⚠️ Submit event failed:', error.message);
         }
-      }, 50); // Reduced from 200ms to 50ms
+      }, 50);
       
-      setTimeout(() => {
-        try {
-          const clickEvent = new MouseEvent('click', { 
-            bubbles: true, 
-            cancelable: true,
-            view: window
-          });
-          submitBtn.dispatchEvent(clickEvent);
-          console.log('[AutoLogin] ⚡ INSTANT click event dispatched');
-        } catch (error) {
-          console.log('[AutoLogin] ⚠️ Click event failed:', error.message);
+    } else {
+      // FALLBACK: Only use button clicks if no form found AND button is safe
+      const submitBtn = document.querySelector('#loginbutton') || 
+                       document.querySelector('input[type="submit"]') || 
+                       document.querySelector('button[type="submit"]');
+
+      if (submitBtn) {
+        // Check if button has javascript: URL (CSP violation risk)
+        const hasJsUrl = submitBtn.hasAttribute('onclick') || 
+                        (submitBtn.href && submitBtn.href.startsWith('javascript:'));
+        
+        if (hasJsUrl) {
+          console.log('[AutoLogin] ⚠️ Button has javascript: URL, skipping to avoid CSP violation');
+        } else {
+          console.log('[AutoLogin] ⚡ Safe button found, clicking...');
+          
+          try {
+            submitBtn.click();
+            console.log('[AutoLogin] ⚡ Submit button clicked INSTANTLY');
+          } catch (error) {
+            console.log('[AutoLogin] ⚠️ Button click failed:', error.message);
+          }
         }
-      }, 100); // Reduced from 400ms to 100ms
+      }
     }
     
-    // PARALLEL: Also try HTTP submission methods
-    try {
-      // Method 1: Try to get form data and submit via fetch
+    // Additional fallback: Try HTTP POST if form submission might not work
+    setTimeout(() => {
       const form = document.querySelector('form');
-      if (form) {
-        const formData = new FormData(form);
-        
-        // Ensure our credentials are in the form data
-        formData.set('username', settings.username);
-        formData.set('password', settings.password);
-        
-        // Add any hidden fields that might be required
-        const hiddenInputs = form.querySelectorAll('input[type="hidden"]');
-        hiddenInputs.forEach(input => {
-          if (input.name && input.value) {
-            formData.set(input.name, input.value);
-          }
-        });
-
-        console.log('[AutoLogin] 📤 PARALLEL: Auto-submitting form via fetch...');
-        
-        // Don't await - run in parallel with button clicks
-        fetch(form.action || window.location.href, {
-          method: form.method || 'POST',
-          body: formData,
-          credentials: 'same-origin',
-          headers: {
-            'X-Requested-With': 'XMLHttpRequest'
-          }
-        }).then(response => {
-          console.log('[AutoLogin] ✅ HTTP Form submitted! Response status:', response.status);
-          
-          if (response.ok || response.redirected) {
-            console.log('[AutoLogin] 🎉 Login successful via HTTP request');
-            notifySuccessAndClose();
-            
-            if (response.redirected) {
-              console.log('[AutoLogin] Following redirect to:', response.url);
-              window.location.href = response.url;
-            }
-          }
-        }).catch(error => {
-          console.log('[AutoLogin] ⚠️ HTTP form submission failed:', error.message);
-        });
-        
-        // Also try direct form submission with minimal delay
-        setTimeout(() => {
-          try {
-            form.submit();
-            console.log('[AutoLogin] ⚡ INSTANT direct form.submit() executed');
-          } catch (error) {
-            console.log('[AutoLogin] ⚠️ form.submit() failed:', error.message);
-          }
-        }, 50); // Reduced from 100ms to 50ms
-        
-      } else {
+      if (!form) {
         console.log('[AutoLogin] No form found, trying direct POST...');
         
-        // Method 2: Direct POST request with common parameters
+        // Direct POST request with common parameters
         const loginData = new URLSearchParams();
         loginData.append('username', settings.username);
         loginData.append('password', settings.password);
-        loginData.append('mode', '191'); // Common parameter for this type of portal
+        loginData.append('mode', '191');
         loginData.append('producttype', '0');
         loginData.append('a', Date.now().toString());
 
-        console.log('[AutoLogin] 📤 PARALLEL: Auto-submitting via direct POST...');
+        console.log('[AutoLogin] 📤 Fallback: Auto-submitting via direct POST...');
         
         fetch('https://192.168.1.254:8090/login.xml', {
           method: 'POST',
@@ -191,7 +159,7 @@
           },
           credentials: 'same-origin'
         }).then(async response => {
-          console.log('[AutoLogin] ✅ Direct POST submitted! Response:', response.status);
+          console.log('[AutoLogin] ✅ Direct POST response:', response.status);
           const responseText = await response.text();
           console.log('[AutoLogin] Response text:', responseText);
 
@@ -203,20 +171,17 @@
           console.log('[AutoLogin] ⚠️ Direct POST failed:', error.message);
         });
       }
-      
-    } catch (error) {
-      console.error('[AutoLogin] ❌ HTTP methods failed:', error);
-    }
+    }, 100);
     
-    // INSTANT: Keyboard Enter events as backup
+    // Keyboard Enter events as backup
     setTimeout(() => {
       attemptKeyboardSubmission();
-    }, 150); // Reduced from 600ms to 150ms
+    }, 150);
     
-    // INSTANT: Check for success after all attempts
+    // Check for success after all attempts
     setTimeout(() => {
       checkLoginSuccess();
-    }, 300); // Reduced from 1000ms to 300ms
+    }, 300);
   }
 
   // NEW: Force form submission using multiple methods
